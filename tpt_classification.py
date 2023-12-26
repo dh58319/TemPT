@@ -14,7 +14,7 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
-import wandb
+
 
 try:
     from torchvision.transforms import InterpolationMode
@@ -111,14 +111,14 @@ def main_worker(gpu, args):
         model_state = deepcopy(model.state_dict())
     else:
         model = get_coop(args.arch, args.test_sets, args.gpu, args.n_ctx, args.ctx_init)
-        print(model)
+        # print(model)
         if args.load is not None:
             print("Use pre-trained soft prompt (CoOp) as initialization")
             pretrained_ctx = torch.load(args.load, map_location='cpu')['state_dict']['ctx']
             assert pretrained_ctx.size()[0] == args.n_ctx
-            with torch.no_grad():
-                model.prompt_learner.ctx.copy_(pretrained_ctx)
-                model.prompt_learner.ctx_init_state = pretrained_ctx
+            # with torch.no_grad():
+            #     model.prompt_learner[0].ctx.copy_(pretrained_ctx)
+            #     model.prompt_learner[0].ctx_init_state = pretrained_ctx
         model_state = None
 
     for name, param in model.named_parameters():
@@ -219,7 +219,7 @@ def main_worker(gpu, args):
         results[set_id] = test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state, scaler, args)
         del val_dataset, val_loader
         try:
-            wandb.log({f"acc@1/{set_id}": results[set_id][0], f"acc@5/{set_id}": results[set_id][1]})
+
             print("=> Acc. on testset [{}]: @1 {}/ @5 {}".format(set_id, results[set_id][0], results[set_id][1]))
         except:
             print("=> Acc. on testset [{}]: {}".format(set_id, results[set_id]))
@@ -228,8 +228,7 @@ def main_worker(gpu, args):
     print("params: nstep	lr	bs")
     print("params: {}	{}	{}".format(args.tta_steps, args.lr, args.batch_size))
     print("\t\t [set_id] \t\t Top-1 acc. \t\t Top-5 acc.")
-    wandb.log({"acc@1/avg": np.mean([results[set_id][0] for set_id in datasets]),
-               "acc@5/avg": np.mean([results[set_id][1] for set_id in datasets])})
+
     for id in results.keys():
         print("{}".format(id), end="	")
     print("\n")
@@ -325,7 +324,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch-size', default=64, type=int, metavar='N')
     parser.add_argument('--lr', '--learning-rate', default=5e-3, type=float,
                         metavar='LR', help='initial learning rate', dest='lr')
-    parser.add_argument('-p', '--print-freq', default=200, type=int,
+    parser.add_argument('-p', '--print-freq', default=1, type=int,
                         metavar='N', help='print frequency (default: 10)')
     parser.add_argument('--gpu', default=0, type=int,
                         help='GPU id to use.')
@@ -339,6 +338,5 @@ if __name__ == '__main__':
     parser.add_argument('--load', default=None, type=str, help='path to a pre-trained coop/cocoop')
     parser.add_argument('--seed', type=int, default=0)
 
-    wandb.init(project="tpt", config=vars(parser.parse_args()))
 
     main()

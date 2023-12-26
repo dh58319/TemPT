@@ -1,4 +1,3 @@
-
 import math
 from typing import List, Tuple
 
@@ -14,7 +13,8 @@ from data.cls_to_names import *
 
 _tokenizer = _Tokenizer()
 
-DOWNLOAD_ROOT='~/.cache/clip'
+DOWNLOAD_ROOT = '~/.cache/clip'
+
 
 class ClipImageEncoder(nn.Module):
     def __init__(self, device, arch="ViT-L/14", image_resolution=224, n_class=1000):
@@ -23,9 +23,9 @@ class ClipImageEncoder(nn.Module):
         self.encoder = clip.visual
         del clip.transformer
         torch.cuda.empty_cache()
-        
+
         self.cls_head = nn.Linear(embed_dim, n_class)
-    
+
     @property
     def dtype(self):
         return self.encoder.conv1.weight.dtype
@@ -60,7 +60,8 @@ class TextEncoder(nn.Module):
 
 
 class PromptLearner(nn.Module):
-    def __init__(self, clip_model, classnames, batch_size=None, n_ctx=16, ctx_init=None, ctx_position='end', learned_cls=False):
+    def __init__(self, clip_model, classnames, batch_size=None, n_ctx=16, ctx_init=None, ctx_position='end',
+                 learned_cls=False):
         super().__init__()
         n_cls = len(classnames)
         self.learned_cls = learned_cls
@@ -89,24 +90,24 @@ class PromptLearner(nn.Module):
             prompt = tokenize(ctx_init).to(self.device)
             with torch.no_grad():
                 embedding = clip_model.token_embedding(prompt).type(dtype)
-            ctx_vectors = embedding[0, 1 : 1 + n_ctx, :]
+            ctx_vectors = embedding[0, 1: 1 + n_ctx, :]
             prompt_prefix = ctx_init
         else:
             print("Random initialization: initializing a generic context")
             ctx_vectors = torch.empty(n_ctx, ctx_dim, dtype=dtype)
             nn.init.normal_(ctx_vectors, std=0.02)
             prompt_prefix = " ".join(["X"] * n_ctx)
-        
+
         self.prompt_prefix = prompt_prefix
 
         print(f'Initial context: "{prompt_prefix}"')
         print(f"Number of context words (tokens): {n_ctx}")
 
         # batch-wise prompt tuning for test-time adaptation
-        if self.batch_size is not None: 
-            ctx_vectors = ctx_vectors.repeat(batch_size, 1, 1)  #(N, L, D)
+        if self.batch_size is not None:
+            ctx_vectors = ctx_vectors.repeat(batch_size, 1, 1)  # (N, L, D)
         self.ctx_init_state = ctx_vectors.detach().clone()
-        self.ctx = nn.Parameter(ctx_vectors) # to be optimized
+        self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
 
         if not self.learned_cls:
             classnames = [name.replace("_", " ") for name in classnames]
@@ -114,14 +115,14 @@ class PromptLearner(nn.Module):
             prompts = [prompt_prefix + " " + name + "." for name in classnames]
         else:
             print("Random initialization: initializing a learnable class token")
-            cls_vectors = torch.empty(n_cls, 1, ctx_dim, dtype=dtype) # assume each learnable cls_token is only 1 word
+            cls_vectors = torch.empty(n_cls, 1, ctx_dim, dtype=dtype)  # assume each learnable cls_token is only 1 word
             nn.init.normal_(cls_vectors, std=0.02)
             cls_token = "X"
             name_lens = [1 for _ in classnames]
             prompts = [prompt_prefix + " " + cls_token + "." for _ in classnames]
 
             self.cls_init_state = cls_vectors.detach().clone()
-            self.cls = nn.Parameter(cls_vectors) # to be optimized
+            self.cls = nn.Parameter(cls_vectors)  # to be optimized
 
         tokenized_prompts = torch.cat([tokenize(p) for p in prompts]).to(self.device)
         with torch.no_grad():
@@ -134,7 +135,7 @@ class PromptLearner(nn.Module):
         if self.learned_cls:
             self.register_buffer("token_suffix", embedding[:, 1 + n_ctx + 1:, :])  # ..., EOS
         else:
-            self.register_buffer("token_suffix", embedding[:, 1 + n_ctx :, :])  # CLS, EOS
+            self.register_buffer("token_suffix", embedding[:, 1 + n_ctx:, :])  # CLS, EOS
 
         self.ctx_init = ctx_init
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
@@ -146,7 +147,7 @@ class PromptLearner(nn.Module):
 
     def reset(self):
         ctx_vectors = self.ctx_init_state
-        self.ctx.copy_(ctx_vectors) # to be optimized
+        self.ctx.copy_(ctx_vectors)  # to be optimized
         if self.learned_cls:
             cls_vectors = self.cls_init_state
             self.cls.copy_(cls_vectors)
@@ -158,7 +159,8 @@ class PromptLearner(nn.Module):
             name_lens = [len(_tokenizer.encode(name)) for name in classnames]
             prompts = [self.prompt_prefix + " " + name + "." for name in classnames]
         else:
-            cls_vectors = torch.empty(self.n_cls, 1, self.ctx_dim, dtype=self.dtype) # assume each learnable cls_token is only 1 word
+            cls_vectors = torch.empty(self.n_cls, 1, self.ctx_dim,
+                                      dtype=self.dtype)  # assume each learnable cls_token is only 1 word
             nn.init.normal_(cls_vectors, std=0.02)
             cls_token = "X"
             name_lens = [1 for _ in classnames]
@@ -174,7 +176,7 @@ class PromptLearner(nn.Module):
             embedding = clip.token_embedding(tokenized_prompts).type(self.dtype)
 
         self.token_prefix = embedding[:, :1, :]
-        self.token_suffix = embedding[:, 1 + self.n_ctx :, :]  # CLS, EOS
+        self.token_suffix = embedding[:, 1 + self.n_ctx:, :]  # CLS, EOS
 
         self.name_lens = name_lens
         self.tokenized_prompts = tokenized_prompts
@@ -193,7 +195,7 @@ class PromptLearner(nn.Module):
 
         prefix = self.token_prefix
         suffix = self.token_suffix
-        if self.batch_size is not None: 
+        if self.batch_size is not None:
             # This way only works for single-gpu setting (could pass batch size as an argument for forward())
             prefix = prefix.repeat(self.batch_size, 1, 1, 1)
             suffix = suffix.repeat(self.batch_size, 1, 1, 1)
@@ -206,8 +208,8 @@ class PromptLearner(nn.Module):
                 prompts = torch.cat(
                     [
                         prefix,  # (n_cls, 1, dim)
-                        ctx,     # (n_cls, n_ctx, dim)
-                        cls,     # (n_cls, 1, dim)
+                        ctx,  # (n_cls, n_ctx, dim)
+                        cls,  # (n_cls, 1, dim)
                         suffix,  # (n_cls, *, dim)
                     ],
                     dim=-2,
@@ -216,7 +218,7 @@ class PromptLearner(nn.Module):
                 prompts = torch.cat(
                     [
                         prefix,  # (n_cls, 1, dim)
-                        ctx,     # (n_cls, n_ctx, dim)
+                        ctx,  # (n_cls, n_ctx, dim)
                         suffix,  # (n_cls, *, dim)
                     ],
                     dim=-2,
@@ -224,24 +226,24 @@ class PromptLearner(nn.Module):
         elif self.class_token_position == "middle":
             # TODO: to work with a batch of prompts
             if self.split_idx is not None:
-                half_n_ctx = self.split_idx # split the ctx at the position of [CLS] in `ctx_init`
+                half_n_ctx = self.split_idx  # split the ctx at the position of [CLS] in `ctx_init`
             else:
                 half_n_ctx = self.n_ctx // 2
             prompts = []
             for i in range(self.n_cls):
                 name_len = self.name_lens[i]
-                prefix_i = prefix[i : i + 1, :, :]
-                class_i = suffix[i : i + 1, :name_len, :]
-                suffix_i = suffix[i : i + 1, name_len:, :]
-                ctx_i_half1 = ctx[i : i + 1, :half_n_ctx, :]
-                ctx_i_half2 = ctx[i : i + 1, half_n_ctx:, :]
+                prefix_i = prefix[i: i + 1, :, :]
+                class_i = suffix[i: i + 1, :name_len, :]
+                suffix_i = suffix[i: i + 1, name_len:, :]
+                ctx_i_half1 = ctx[i: i + 1, :half_n_ctx, :]
+                ctx_i_half2 = ctx[i: i + 1, half_n_ctx:, :]
                 prompt = torch.cat(
                     [
-                        prefix_i,     # (1, 1, dim)
+                        prefix_i,  # (1, 1, dim)
                         ctx_i_half1,  # (1, n_ctx//2, dim)
-                        class_i,      # (1, name_len, dim)
+                        class_i,  # (1, name_len, dim)
                         ctx_i_half2,  # (1, n_ctx//2, dim)
-                        suffix_i,     # (1, *, dim)
+                        suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
                 )
@@ -252,15 +254,15 @@ class PromptLearner(nn.Module):
             prompts = []
             for i in range(self.n_cls):
                 name_len = self.name_lens[i]
-                prefix_i = prefix[i : i + 1, :, :]
-                class_i = suffix[i : i + 1, :name_len, :]
-                suffix_i = suffix[i : i + 1, name_len:, :]
-                ctx_i = ctx[i : i + 1, :, :]
+                prefix_i = prefix[i: i + 1, :, :]
+                class_i = suffix[i: i + 1, :name_len, :]
+                suffix_i = suffix[i: i + 1, name_len:, :]
+                ctx_i = ctx[i: i + 1, :, :]
                 prompt = torch.cat(
                     [
                         prefix_i,  # (1, 1, dim)
-                        class_i,   # (1, name_len, dim)
-                        ctx_i,     # (1, n_ctx, dim)
+                        class_i,  # (1, name_len, dim)
+                        ctx_i,  # (1, n_ctx, dim)
                         suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
@@ -276,19 +278,24 @@ class PromptLearner(nn.Module):
 
 class ClipTestTimeTuning(nn.Module):
     def __init__(self, device, classnames, batch_size, criterion='cosine', arch="ViT-L/14",
-                        n_ctx=16, ctx_init=None, ctx_position='end', learned_cls=False):
+                 n_ctx=16, ctx_init=None, ctx_position='end', learned_cls=False, chest=None):
         super(ClipTestTimeTuning, self).__init__()
-        clip, _, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
-        self.image_encoder = clip.visual
+        if chest is not None:
+            clip, _, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
+            # load the pretrained model
+            clip.load_state_dict(torch.load(chest, map_location='cpu')['state_dict'])
+        else : clip, _, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
+        self.visual = clip.visual
         self.text_encoder = TextEncoder(clip)
-        self.logit_scale = clip.logit_scale.data
+        self.logit_scale = clip.logit_scale
         # prompt tuning
         self.prompt_learner = PromptLearner(clip, classnames, batch_size, n_ctx, ctx_init, ctx_position, learned_cls)
         self.criterion = criterion
-        
+
+
     @property
     def dtype(self):
-        return self.image_encoder.conv1.weight.dtype
+        return self.visual.conv1.weight.dtype
 
     # restore the initial state of the prompt_learner (tunable prompt)
     def reset(self):
@@ -309,11 +316,11 @@ class ClipTestTimeTuning(nn.Module):
 
     def inference(self, image):
         with torch.no_grad():
-            image_features = self.image_encoder(image.type(self.dtype))
+            image_features = self.visual(image.type(self.dtype))
 
         text_features = self.get_text_features()
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        
+
         logit_scale = self.logit_scale.exp()
         logits = logit_scale * image_features @ text_features.t()
 
@@ -329,16 +336,22 @@ class ClipTestTimeTuning(nn.Module):
             return self.inference(input)
 
 
-def get_coop(clip_arch, test_set, device, n_ctx, ctx_init, learned_cls=False):
+def get_coop(clip_arch, test_set, device, n_ctx, ctx_init, learned_cls=False, chest=None):
+    print("test_set", test_set)
     if test_set in fewshot_datasets:
         classnames = eval("{}_classes".format(test_set.lower()))
-    elif test_set == 'chexpert':
-        classnames = chexpert_classes
+
+    elif test_set == 'bongard':
+        if learned_cls:
+            classnames = ['X', 'X']
+        else:
+            classnames = ['True', 'False']
     else:
         classnames = imagenet_classes
 
+
     model = ClipTestTimeTuning(device, classnames, None, arch=clip_arch,
-                            n_ctx=n_ctx, ctx_init=ctx_init, learned_cls=learned_cls)
+                               n_ctx=n_ctx, ctx_init=ctx_init, learned_cls=learned_cls)
 
     return model
 

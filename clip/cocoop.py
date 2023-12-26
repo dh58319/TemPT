@@ -230,5 +230,6 @@ def get_cocoop(clip_arch, test_set, device, n_ctx):
         classnames = imagenet_classes
     
     model = CoCoOpCLIP(device, classnames, arch=clip_arch, n_ctx=n_ctx)
+    print('vision encoder parameters',sum(p.numel() for p in model.image_encoder.parameters()))
 
     return model

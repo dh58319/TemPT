@@ -3,7 +3,7 @@
 data_root='/home/dk58319/shared/hdd_ext/nvme1/public/vision/classification/'
 testsets=$1
 arch=RN50
-# arch=ViT-B/16
+#arch=ViT-B/16
 bs=64
 ctx_init=a_photo_of_a
 
